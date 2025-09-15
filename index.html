@@ -1,0 +1,800 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Controle de Gastos & Caixa</title>
+
+<!-- jsPDF + autotable -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+
+<style>
+  :root{
+    --bg:#f4f7fb; --card:#fff; --accent:#0b74de; --muted:#666; --danger:#d9534f; --ok:#2d9f5f;
+  }
+  body{font-family:Inter,system-ui,Segoe UI,Roboto,Arial;background:var(--bg);margin:0;padding:18px;color:#111;}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:14px;}
+  h1{font-size:18px;margin:0;color:var(--accent)}
+  .layout{max-width:1100px;margin:0 auto;display:grid;grid-template-columns:1fr 420px;gap:18px;}
+  .card{background:var(--card);border-radius:10px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,0.06);}
+  .tabs{display:flex;gap:8px;margin-bottom:10px;}
+  .tab{padding:8px 12px;border-radius:8px;border:1px solid #e6eef7;cursor:pointer;background:#fff}
+  .tab.active{background:var(--accent);color:#fff;box-shadow:0 4px 12px rgba(11,116,222,0.12)}
+  label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px;}
+  input[type="text"],input[type="number"],textarea,input[type="date"],select{width:100%;padding:8px;border-radius:6px;border:1px solid #e8eef6;margin-bottom:10px;box-sizing:border-box;}
+  .row{display:flex;gap:8px;}
+  .btn{display:inline-block;padding:8px 10px;border-radius:8px;border:0;background:var(--accent);color:#fff;cursor:pointer;}
+  .btn.secondary{background:#eef6ff;color:var(--accent);border:1px solid #cfe6ff;}
+  .btn.danger{background:var(--danger);color:#fff;}
+  .quick-cats{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;}
+  .cat-btn{padding:8px;border-radius:8px;border:1px solid #eef5fb;background:#fff;cursor:pointer;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th,td{padding:8px;border-bottom:1px solid #f1f4f8;text-align:left;}
+  th{background:#fbfdff;color:var(--muted);font-weight:700;}
+  .small{font-size:12px;color:var(--muted)}
+  .controls{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .totals{margin-top:10px;font-weight:700;}
+  .negative{color:var(--danger)}
+  .positive{color:var(--ok)}
+  .muted{color:var(--muted)}
+  .sm-btn{padding:6px 8px;border-radius:6px;border:1px solid #e8eef6;background:#fff;cursor:pointer;}
+  .manage-cats{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;}
+  @media (max-width:980px){.layout{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Controle de Gastos & Caixa</h1>
+  <div class="muted" style="margin-left:auto">Salvo em <b>IndexedDB</b> + cache local</div>
+</header>
+
+<div class="layout">
+  <!-- Left: forms and history -->
+  <div class="card" id="mainCard">
+    <div class="tabs">
+      <div class="tab active" id="tabGastos">Gastos</div>
+      <div class="tab" id="tabEntradas">Entradas</div>
+      <div style="margin-left:auto" class="small">Saldo atual: <span id="saldoView">R$ 0,00</span></div>
+    </div>
+
+    <!-- GASTOS -->
+    <div id="screenGastos">
+      <h3 style="margin-top:0">Registrar Gasto</h3>
+      <label>Categoria</label>
+      <div class="quick-cats" id="quickCatsGastos"></div>
+      <select id="selectCatGasto"></select>
+
+      <div class="row">
+        <div style="flex:1">
+          <label>Valor (R$)</label>
+          <input id="inputValorGasto" type="number" step="0.01" min="0" value="0.00" />
+        </div>
+        <div style="width:180px">
+          <label>Data</label>
+          <input id="inputDataGasto" type="datetime-local" />
+        </div>
+      </div>
+
+      <label>Descrição (opcional)</label>
+      <input id="inputDescGasto" type="text" placeholder="Ex: compra mercado, abastecimento..." />
+
+      <div class="row">
+        <button id="btnAddGasto" class="btn">Adicionar Gasto</button>
+        <button id="btnClearGasto" class="btn secondary">Limpar</button>
+        <div style="margin-left:auto" class="small">Gastos vão diminuir o caixa</div>
+      </div>
+
+      <hr>
+
+      <h4>Histórico de Gastos</h4>
+      <div class="row" style="align-items:end;margin-bottom:8px;">
+        <div style="flex:1">
+          <label>Filtrar por categoria</label>
+          <select id="filterCatGasto"><option value="__all">Todos</option></select>
+        </div>
+        <div style="width:160px">
+          <label>Data início</label>
+          <input id="filterGastoStart" type="date" />
+        </div>
+        <div style="width:160px">
+          <label>Data fim</label>
+          <input id="filterGastoEnd" type="date" />
+        </div>
+      </div>
+      <div class="controls" style="margin-bottom:8px;">
+        <button id="btnFilterGasto" class="btn">Aplicar Filtro</button>
+        <button id="btnResetFilterGasto" class="btn secondary">Limpar Filtro</button>
+        <button id="btnExportGastoPDF" class="btn" style="margin-left:auto">Exportar PDF</button>
+        <button id="btnExportGastoCSV" class="btn secondary">Exportar CSV</button>
+      </div>
+
+      <div style="max-height:320px;overflow:auto">
+        <table id="tableGastos">
+          <thead><tr><th>Data / Hora</th><th>Categoria</th><th>Descrição</th><th>Valor R$</th><th>Ações</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="totals" id="totaisGastos">Total gastos: R$ 0,00</div>
+    </div>
+
+    <!-- ENTRADAS -->
+    <div id="screenEntradas" style="display:none">
+      <h3 style="margin-top:0">Registrar Entrada</h3>
+      <label>Categoria (tipo de entrada)</label>
+      <div class="quick-cats" id="quickCatsEntradas"></div>
+      <select id="selectCatEntrada"></select>
+
+      <div class="row">
+        <div style="flex:1">
+          <label>Valor (R$)</label>
+          <input id="inputValorEntrada" type="number" step="0.01" min="0" value="0.00" />
+        </div>
+        <div style="width:180px">
+          <label>Data</label>
+          <input id="inputDataEntrada" type="datetime-local" />
+        </div>
+      </div>
+
+      <label>Descrição (opcional)</label>
+      <input id="inputDescEntrada" type="text" placeholder="Ex: venda, depósito, troco..." />
+
+      <div class="row">
+        <button id="btnAddEntrada" class="btn">Adicionar Entrada</button>
+        <button id="btnClearEntrada" class="btn secondary">Limpar</button>
+        <div style="margin-left:auto" class="small">Entradas aumentam o caixa</div>
+      </div>
+
+      <hr>
+
+      <h4>Histórico de Entradas</h4>
+      <div class="row" style="align-items:end;margin-bottom:8px;">
+        <div style="flex:1">
+          <label>Filtrar por categoria</label>
+          <select id="filterCatEntrada"><option value="__all">Todos</option></select>
+        </div>
+        <div style="width:160px">
+          <label>Data início</label>
+          <input id="filterEntradaStart" type="date" />
+        </div>
+        <div style="width:160px">
+          <label>Data fim</label>
+          <input id="filterEntradaEnd" type="date" />
+        </div>
+      </div>
+      <div class="controls" style="margin-bottom:8px;">
+        <button id="btnFilterEntrada" class="btn">Aplicar Filtro</button>
+        <button id="btnResetFilterEntrada" class="btn secondary">Limpar Filtro</button>
+        <button id="btnExportEntradaPDF" class="btn" style="margin-left:auto">Exportar PDF</button>
+        <button id="btnExportEntradaCSV" class="btn secondary">Exportar CSV</button>
+      </div>
+
+      <div style="max-height:320px;overflow:auto">
+        <table id="tableEntradas">
+          <thead><tr><th>Data / Hora</th><th>Categoria</th><th>Descrição</th><th>Valor R$</th><th>Ações</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="totals" id="totaisEntradas">Total entradas: R$ 0,00</div>
+    </div>
+  </div>
+
+  <!-- Right: categorias e resumo -->
+  <div class="card">
+    <h3 style="margin-top:0">Categorias</h3>
+    <div class="manage-cats">
+      <input id="newCatName" type="text" placeholder="Nova categoria (Ex: Material)" />
+      <button id="btnAddCat" class="btn">Adicionar</button>
+    </div>
+    <div style="margin-top:10px;max-height:220px;overflow:auto">
+      <table id="tableCats"><thead><tr><th>Nome</th><th>Ações</th></tr></thead><tbody></tbody></table>
+    </div>
+
+    <hr>
+    <h3>Resumo / Caixa</h3>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      <div>Total entradas: <b id="sumEntradas">R$ 0,00</b></div>
+      <div>Total gastos: <b id="sumGastos">R$ 0,00</b></div>
+      <div>Saldo atual: <b id="sumSaldo" class="positive">R$ 0,00</b></div>
+    </div>
+
+    <hr>
+    <div style="display:flex;gap:8px;margin-top:8px;">
+      <button id="btnExportAllPDF" class="btn">Exportar tudo → PDF</button>
+      <button id="btnExportAllCSV" class="btn secondary">Exportar tudo → CSV</button>
+      <button id="btnClearAll" class="btn danger" style="margin-left:auto">Limpar todos dados</button>
+    </div>
+
+    <div style="margin-top:8px" class="small">Dados persistidos em IndexedDB e cache local. Use "Limpar todos dados" com cuidado.</div>
+  </div>
+</div>
+
+<script>
+/*
+  Controle de Gastos & Caixa
+  - IndexedDB: stores 'categories', 'gastos', 'entradas'
+  - Também salva snapshot em localStorage (cache) para carregamento rápido
+  - Export PDF/CSV, filtros, categorias editáveis
+*/
+
+// ---------- Helpers ----------
+const moneyBR = v => Number(v || 0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const nowISO = () => new Date().toISOString();
+const formatDateTime = iso => {
+  if(!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleString('pt-BR');
+};
+const isoToInputLocal = iso => {
+  if(!iso) return '';
+  const d = new Date(iso);
+  // produce yyyy-mm-ddThh:mm
+  const pad = n => String(n).padStart(2,'0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
+// ---------- IndexedDB simple wrapper ----------
+const DB_NAME = 'controle_gastos_db_v1';
+const DB_VERSION = 1;
+let db = null;
+
+function openDB(){
+  return new Promise((resolve, reject) => {
+    if(db) return resolve(db);
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = (e) => {
+      const idb = e.target.result;
+      if(!idb.objectStoreNames.contains('categories')) idb.createObjectStore('categories',{keyPath:'id'});
+      if(!idb.objectStoreNames.contains('gastos')) idb.createObjectStore('gastos',{keyPath:'id'});
+      if(!idb.objectStoreNames.contains('entradas')) idb.createObjectStore('entradas',{keyPath:'id'});
+    };
+    req.onsuccess = (e) => {
+      db = e.target.result;
+      resolve(db);
+    };
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+function idbPut(storeName, obj){
+  return openDB().then(db => new Promise((res,rej)=>{
+    const tx = db.transaction(storeName,'readwrite');
+    const st = tx.objectStore(storeName);
+    st.put(obj);
+    tx.oncomplete = ()=> res(true);
+    tx.onerror = ()=> rej(tx.error);
+  }));
+}
+
+function idbGetAll(storeName){
+  return openDB().then(db => new Promise((res,rej)=>{
+    const tx = db.transaction(storeName,'readonly');
+    const st = tx.objectStore(storeName);
+    const req = st.getAll();
+    req.onsuccess = ()=> res(req.result || []);
+    req.onerror = ()=> rej(req.error);
+  }));
+}
+
+function idbDelete(storeName, key){
+  return openDB().then(db => new Promise((res,rej)=>{
+    const tx = db.transaction(storeName,'readwrite');
+    tx.objectStore(storeName).delete(key);
+    tx.oncomplete = ()=> res(true);
+    tx.onerror = ()=> rej(tx.error);
+  }));
+}
+
+function idbClearAll(){
+  return openDB().then(db => new Promise((res,rej)=>{
+    const tx = db.transaction(['categories','gastos','entradas'],'readwrite');
+    tx.objectStore('categories').clear();
+    tx.objectStore('gastos').clear();
+    tx.objectStore('entradas').clear();
+    tx.oncomplete = ()=> res(true);
+    tx.onerror = ()=> rej(tx.error);
+  }));
+}
+
+// ---------- Storage keys for cache ----------
+const LS_CACHE = 'controle_gastos_cache_v1';
+
+// ---------- Default categories ----------
+const defaultCats = [
+  {id:'cat_alimento', name:'Alimento'},
+  {id:'cat_gasolina', name:'Gasolina'},
+  {id:'cat_lanches', name:'Lanches'},
+  {id:'cat_agua', name:'Água'},
+  {id:'cat_luz', name:'Luz'},
+  {id:'cat_internet', name:'Internet'}
+];
+
+// ---------- App state ----------
+let categories = [];
+let gastos = [];
+let entradas = [];
+
+// ---------- DOM refs ----------
+const tabGastos = document.getElementById('tabGastos');
+const tabEntradas = document.getElementById('tabEntradas');
+const screenGastos = document.getElementById('screenGastos');
+const screenEntradas = document.getElementById('screenEntradas');
+
+const quickCatsGastos = document.getElementById('quickCatsGastos');
+const selectCatGasto = document.getElementById('selectCatGasto');
+const inputValorGasto = document.getElementById('inputValorGasto');
+const inputDataGasto = document.getElementById('inputDataGasto');
+const inputDescGasto = document.getElementById('inputDescGasto');
+const tableGastosBody = document.querySelector('#tableGastos tbody');
+const filterCatGasto = document.getElementById('filterCatGasto');
+const filterGastoStart = document.getElementById('filterGastoStart');
+const filterGastoEnd = document.getElementById('filterGastoEnd');
+const totaisGastos = document.getElementById('totaisGastos');
+
+const quickCatsEntradas = document.getElementById('quickCatsEntradas');
+const selectCatEntrada = document.getElementById('selectCatEntrada');
+const inputValorEntrada = document.getElementById('inputValorEntrada');
+const inputDataEntrada = document.getElementById('inputDataEntrada');
+const inputDescEntrada = document.getElementById('inputDescEntrada');
+const tableEntradasBody = document.querySelector('#tableEntradas tbody');
+const filterCatEntrada = document.getElementById('filterCatEntrada');
+const filterEntradaStart = document.getElementById('filterEntradaStart');
+const filterEntradaEnd = document.getElementById('filterEntradaEnd');
+const totaisEntradas = document.getElementById('totaisEntradas');
+
+const newCatName = document.getElementById('newCatName');
+const btnAddCat = document.getElementById('btnAddCat');
+const tableCatsBody = document.querySelector('#tableCats tbody');
+
+const sumEntradasView = document.getElementById('sumEntradas');
+const sumGastosView = document.getElementById('sumGastos');
+const sumSaldoView = document.getElementById('sumSaldo');
+const saldoViewTop = document.getElementById('saldoView');
+
+const btnAddGasto = document.getElementById('btnAddGasto');
+const btnAddEntrada = document.getElementById('btnAddEntrada');
+const btnClearAll = document.getElementById('btnClearAll');
+
+// ---------- UI: Tabs ----------
+tabGastos.addEventListener('click', ()=>{ tabGastos.classList.add('active'); tabEntradas.classList.remove('active'); screenGastos.style.display='block'; screenEntradas.style.display='none'; });
+tabEntradas.addEventListener('click', ()=>{ tabEntradas.classList.add('active'); tabGastos.classList.remove('active'); screenEntradas.style.display='block'; screenGastos.style.display='none'; });
+
+// ---------- Category management ----------
+function refreshCategoryUI(){
+  // quick buttons & selects & category table
+  quickCatsGastos.innerHTML = '';
+  quickCatsEntradas.innerHTML = '';
+  selectCatGasto.innerHTML = '';
+  selectCatEntrada.innerHTML = '';
+  filterCatGasto.innerHTML = '<option value="__all">Todos</option>';
+  filterCatEntrada.innerHTML = '<option value="__all">Todos</option>';
+  tableCatsBody.innerHTML = '';
+
+  categories.forEach(cat=>{
+    const b1 = document.createElement('button');
+    b1.className = 'cat-btn';
+    b1.textContent = cat.name;
+    b1.onclick = ()=> { selectCatGasto.value = cat.id; selectCatEntrada.value = cat.id; };
+    quickCatsGastos.appendChild(b1);
+
+    const b2 = document.createElement('button');
+    b2.className = 'cat-btn';
+    b2.textContent = cat.name;
+    b2.onclick = ()=> { selectCatEntrada.value = cat.id; selectCatGasto.value = cat.id; };
+    quickCatsEntradas.appendChild(b2);
+
+    const opt1 = document.createElement('option'); opt1.value = cat.id; opt1.textContent = cat.name; selectCatGasto.appendChild(opt1);
+    const opt2 = document.createElement('option'); opt2.value = cat.id; opt2.textContent = cat.name; selectCatEntrada.appendChild(opt2);
+    const optf1 = document.createElement('option'); optf1.value = cat.id; optf1.textContent = cat.name; filterCatGasto.appendChild(optf1);
+    const optf2 = document.createElement('option'); optf2.value = cat.id; optf2.textContent = cat.name; filterCatEntrada.appendChild(optf2);
+
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${escapeHtml(cat.name)}</td><td>
+      <button class="sm-btn" data-id="${cat.id}" onclick="editCat(this.dataset.id)">Editar</button>
+      <button class="sm-btn" data-id="${cat.id}" onclick="deleteCat(this.dataset.id)">Excluir</button>
+    </td>`;
+    tableCatsBody.appendChild(tr);
+  });
+}
+
+// expose edit/delete to window for inline onclick
+window.editCat = function(id){
+  const cat = categories.find(c=>c.id===id);
+  if(!cat) return alert('Categoria não encontrada');
+  const novo = prompt('Editar categoria:', cat.name);
+  if(novo === null) return;
+  const name = novo.trim();
+  if(!name) return alert('Nome inválido');
+  cat.name = name;
+  idbPut('categories', cat).then(()=>{ persistCache(); loadAll(); });
+};
+
+window.deleteCat = function(id){
+  if(!confirm('Excluir categoria? todos lançamentos com essa categoria permanecerão, mas você não verá a categoria na lista.')) return;
+  // remove from categories list
+  categories = categories.filter(c=>c.id!==id);
+  // delete from indexedDB store
+  // we'll update categories store by clearing and re-putting
+  openDB().then(db => {
+    const tx = db.transaction('categories','readwrite');
+    const st = tx.objectStore('categories');
+    st.delete(id);
+    tx.oncomplete = () => { persistCache(); loadAll(); };
+    tx.onerror = ()=> alert('Erro ao excluir categoria');
+  });
+};
+
+// add category
+btnAddCat.addEventListener('click', ()=>{
+  const name = newCatName.value.trim();
+  if(!name) return alert('Digite o nome da categoria');
+  const id = 'cat_' + Date.now();
+  const cat = {id, name};
+  idbPut('categories', cat).then(()=> {
+    newCatName.value = '';
+    persistCache();
+    loadAll();
+  });
+});
+
+// ---------- CRUD Gastos / Entradas ----------
+function addGasto(obj){
+  const rec = {
+    id: 'gasto_' + Date.now(),
+    timestamp: obj.timestamp || nowISO(),
+    categoryId: obj.categoryId,
+    description: obj.description || '',
+    value: Number(Number(obj.value || 0).toFixed(2))
+  };
+  return idbPut('gastos', rec).then(()=> { persistCache(); loadAll(); });
+}
+
+function addEntrada(obj){
+  const rec = {
+    id: 'entrada_' + Date.now(),
+    timestamp: obj.timestamp || nowISO(),
+    categoryId: obj.categoryId,
+    description: obj.description || '',
+    value: Number(Number(obj.value || 0).toFixed(2))
+  };
+  return idbPut('entradas', rec).then(()=> { persistCache(); loadAll(); });
+}
+
+function deleteGasto(id){
+  if(!confirm('Excluir gasto?')) return;
+  idbDelete('gastos', id).then(()=> { persistCache(); loadAll(); });
+}
+function deleteEntrada(id){
+  if(!confirm('Excluir entrada?')) return;
+  idbDelete('entradas', id).then(()=> { persistCache(); loadAll(); });
+}
+
+// ---------- Filters apply ----------
+function applyFilters(list, startDate, endDate, categoryFilter){
+  let res = [...list];
+  if(categoryFilter && categoryFilter !== '__all'){
+    res = res.filter(r => r.categoryId === categoryFilter);
+  }
+  if(startDate){
+    const s = new Date(startDate + 'T00:00:00');
+    res = res.filter(r => new Date(r.timestamp) >= s);
+  }
+  if(endDate){
+    const e = new Date(endDate + 'T23:59:59');
+    res = res.filter(r => new Date(r.timestamp) <= e);
+  }
+  // sort descending by date
+  res.sort((a,b)=> new Date(b.timestamp) - new Date(a.timestamp));
+  return res;
+}
+
+// ---------- Render tables & totals ----------
+function renderGastos(){
+  const rows = applyFilters(gastos, filterGastoStart.value, filterGastoEnd.value, filterCatGasto.value);
+  tableGastosBody.innerHTML = '';
+  rows.forEach(r=>{
+    const catName = (categories.find(c=>c.id===r.categoryId) || {name:'(categoria excluída)'}).name;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${formatDateTime(r.timestamp)}</td>
+      <td>${escapeHtml(catName)}</td>
+      <td>${escapeHtml(r.description)}</td>
+      <td>R$ ${moneyBR(r.value)}</td>
+      <td><button class="sm-btn" onclick="deleteGasto('${r.id}')">Excluir</button></td>`;
+    tableGastosBody.appendChild(tr);
+  });
+  const total = rows.reduce((s,x)=>s + x.value, 0);
+  totaisGastos.textContent = `Total gastos (filtrado): R$ ${moneyBR(total)}`;
+}
+
+function renderEntradas(){
+  const rows = applyFilters(entradas, filterEntradaStart.value, filterEntradaEnd.value, filterCatEntrada.value);
+  tableEntradasBody.innerHTML = '';
+  rows.forEach(r=>{
+    const catName = (categories.find(c=>c.id===r.categoryId) || {name:'(categoria excluída)'}).name;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${formatDateTime(r.timestamp)}</td>
+      <td>${escapeHtml(catName)}</td>
+      <td>${escapeHtml(r.description)}</td>
+      <td>R$ ${moneyBR(r.value)}</td>
+      <td><button class="sm-btn" onclick="deleteEntrada('${r.id}')">Excluir</button></td>`;
+    tableEntradasBody.appendChild(tr);
+  });
+  const total = rows.reduce((s,x)=>s + x.value, 0);
+  totaisEntradas.textContent = `Total entradas (filtrado): R$ ${moneyBR(total)}`;
+}
+
+function renderResumo(){
+  const totalEntradas = entradas.reduce((s,x)=>s + x.value,0);
+  const totalGastos = gastos.reduce((s,x)=>s + x.value,0);
+  const saldo = totalEntradas - totalGastos;
+  sumEntradasView.textContent = `R$ ${moneyBR(totalEntradas)}`;
+  sumGastosView.textContent = `R$ ${moneyBR(totalGastos)}`;
+  sumSaldoView.textContent = `R$ ${moneyBR(saldo)}`;
+  sumSaldoView.className = saldo < 0 ? 'negative' : 'positive';
+  saldoViewTop.textContent = `R$ ${moneyBR(saldo)}`;
+  saldoViewTop.className = saldo < 0 ? 'negative' : 'positive';
+}
+
+// ---------- Persistence: cache snapshot ----------
+function persistCache(){
+  const snapshot = { categories, gastos, entradas, ts: nowISO() };
+  try {
+    localStorage.setItem(LS_CACHE, JSON.stringify(snapshot));
+  } catch(e){}
+}
+
+// ---------- Load all data (from cache first, then IndexedDB) ----------
+async function loadAll(){
+  // try cache
+  try {
+    const raw = localStorage.getItem(LS_CACHE);
+    if(raw){
+      const snap = JSON.parse(raw);
+      if(snap){
+        categories = snap.categories || [];
+        gastos = snap.gastos || [];
+        entradas = snap.entradas || [];
+        refreshCategoryUI();
+        renderGastos();
+        renderEntradas();
+        renderResumo();
+      }
+    }
+  } catch(e){ /* ignore */ }
+
+  // then load from IDB to ensure latest
+  await openDB();
+  const [cats, gasts, ins] = await Promise.all([idbGetAll('categories'), idbGetAll('gastos'), idbGetAll('entradas')]);
+  // if no categories in DB, initialize defaults
+  if(!cats || cats.length === 0){
+    // seed default cats
+    await Promise.all(defaultCats.map(c => idbPut('categories', c)));
+    const seeded = defaultCats.slice();
+    categories = seeded;
+  } else {
+    categories = cats;
+  }
+  gastos = gasts || [];
+  entradas = ins || [];
+
+  refreshCategoryUI();
+  renderGastos();
+  renderEntradas();
+  renderResumo();
+  persistCache();
+}
+
+// ---------- Initialize default input times ----------
+function setDefaultDateInputs(){
+  const now = new Date();
+  // round minutes
+  now.setSeconds(0); now.setMilliseconds(0);
+  document.getElementById('inputDataGasto').value = isoToInputLocal(now.toISOString());
+  document.getElementById('inputDataEntrada').value = isoToInputLocal(now.toISOString());
+}
+
+// ---------- Event listeners ----------
+btnAddGasto.addEventListener('click', ()=>{
+  const value = Number(inputValorGasto.value || 0);
+  const cat = selectCatGasto.value || (categories[0] && categories[0].id);
+  if(!cat) return alert('Crie uma categoria antes.');
+  if(!(value > 0)) return alert('Valor deve ser maior que zero.');
+  addGasto({ categoryId: cat, value, description: inputDescGasto.value.trim(), timestamp: inputDataGasto.value ? new Date(inputDataGasto.value).toISOString() : nowISO() })
+    .then(()=> {
+      inputValorGasto.value = '0.00';
+      inputDescGasto.value = '';
+    });
+});
+
+btnAddEntrada.addEventListener('click', ()=>{
+  const value = Number(inputValorEntrada.value || 0);
+  const cat = selectCatEntrada.value || (categories[0] && categories[0].id);
+  if(!cat) return alert('Crie uma categoria antes.');
+  if(!(value > 0)) return alert('Valor deve ser maior que zero.');
+  addEntrada({ categoryId: cat, value, description: inputDescEntrada.value.trim(), timestamp: inputDataEntrada.value ? new Date(inputDataEntrada.value).toISOString() : nowISO() })
+    .then(()=> {
+      inputValorEntrada.value = '0.00';
+      inputDescEntrada.value = '';
+    });
+});
+
+// filter buttons
+document.getElementById('btnFilterGasto').addEventListener('click', renderGastos);
+document.getElementById('btnResetFilterGasto').addEventListener('click', ()=>{ filterCatGasto.value='__all'; filterGastoStart.value=''; filterGastoEnd.value=''; renderGastos(); });
+
+document.getElementById('btnFilterEntrada').addEventListener('click', renderEntradas);
+document.getElementById('btnResetFilterEntrada').addEventListener('click', ()=>{ filterCatEntrada.value='__all'; filterEntradaStart.value=''; filterEntradaEnd.value=''; renderEntradas(); });
+
+// clear all
+btnClearAll.addEventListener('click', ()=>{
+  if(!confirm('Deseja limpar TODOS os dados (categorias, gastos, entradas)? Essa ação é irreversível.')) return;
+  idbClearAll().then(()=> { localStorage.removeItem(LS_CACHE); loadAll(); alert('Dados removidos.'); });
+});
+
+// quick export all
+document.getElementById('btnExportAllCSV').addEventListener('click', ()=> exportAllCSV());
+document.getElementById('btnExportAllPDF').addEventListener('click', ()=> exportAllPDF());
+
+// per-type export
+document.getElementById('btnExportGastoCSV').addEventListener('click', ()=> exportFilteredCSV('gasto'));
+document.getElementById('btnExportGastoPDF').addEventListener('click', ()=> exportFilteredPDF('gasto'));
+document.getElementById('btnExportEntradaCSV').addEventListener('click', ()=> exportFilteredCSV('entrada'));
+document.getElementById('btnExportEntradaPDF').addEventListener('click', ()=> exportFilteredPDF('entrada'));
+
+// ---------- Export utilities ----------
+function exportFilteredCSV(type){
+  const list = type === 'gasto' ? applyFilters(gastos, filterGastoStart.value, filterGastoEnd.value, filterCatGasto.value) : applyFilters(entradas, filterEntradaStart.value, filterEntradaEnd.value, filterCatEntrada.value);
+  if(list.length===0) return alert('Nenhum registro para exportar.');
+  const headers = ['DataHora','Categoria','Descricao','Valor'];
+  const rows = list.map(r => [
+    r.timestamp,
+    (categories.find(c=>c.id===r.categoryId) || {name:'(categoria excluída)'}).name,
+    r.description.replace(/[\n\r;]+/g,' '),
+    r.value.toFixed(2)
+  ]);
+  const csv = [headers.join(';'), ...rows.map(r=>r.join(';'))].join('\\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${type}s_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportAllCSV(){
+  // merge entradas + gastos with type column
+  const all = [
+    ...entradas.map(e => ({type:'entrada', ...e})),
+    ...gastos.map(g => ({type:'gasto', ...g}))
+  ].sort((a,b)=> new Date(b.timestamp) - new Date(a.timestamp));
+  if(all.length===0) return alert('Nenhum registro para exportar.');
+  const headers = ['Tipo','DataHora','Categoria','Descricao','Valor'];
+  const rows = all.map(r => [
+    r.type,
+    r.timestamp,
+    (categories.find(c=>c.id===r.categoryId) || {name:'(categoria excluída)'}).name,
+    r.description.replace(/[\n\r;]+/g,' '),
+    r.value.toFixed(2)
+  ]);
+  const csv = [headers.join(';'), ...rows.map(r=>r.join(';'))].join('\\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `lancamentos_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// PDF exports (jsPDF + autotable)
+function exportFilteredPDF(type){
+  const list = type === 'gasto' ? applyFilters(gastos, filterGastoStart.value, filterGastoEnd.value, filterCatGasto.value) : applyFilters(entradas, filterEntradaStart.value, filterEntradaEnd.value, filterCatEntrada.value);
+  if(list.length===0) return alert('Nenhum registro para exportar.');
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({orientation:'portrait',unit:'pt',format:'a4'});
+  const left = 40;
+  doc.setFontSize(14);
+  doc.text(type === 'gasto' ? 'Histórico de Gastos' : 'Histórico de Entradas', left, 40);
+  doc.setFontSize(10);
+  doc.text(`Exportado em: ${formatDateTime(nowISO())}`, left, 56);
+
+  const rows = list.map(r => [
+    formatDateTime(r.timestamp),
+    (categories.find(c=>c.id===r.categoryId) || {name:'(categoria excluída)'}).name,
+    r.description,
+    r.value.toFixed(2)
+  ]);
+  doc.autoTable({
+    head:[['Data / Hora','Categoria','Descrição','Valor R$']],
+    body: rows,
+    startY: 80,
+    styles:{fontSize:9},
+    headStyles:{fillColor:[11,116,222], textColor:255},
+    margin:{left,right:left}
+  });
+  const total = list.reduce((s,x)=>s + x.value, 0);
+  const finalY = doc.previousAutoTable ? doc.previousAutoTable.finalY + 16 : 120;
+  doc.setFontSize(11);
+  doc.text(`Total: R$ ${moneyBR(total)}`, left, finalY);
+  doc.save(`${type}_export_${new Date().toISOString().slice(0,10)}.pdf`);
+}
+
+function exportAllPDF(){
+  const all = [
+    ...entradas.map(e => ({type:'Entrada', ...e})),
+    ...gastos.map(g => ({type:'Gasto', ...g}))
+  ].sort((a,b)=> new Date(b.timestamp) - new Date(a.timestamp));
+  if(all.length===0) return alert('Nenhum registro para exportar.');
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({orientation:'portrait',unit:'pt',format:'a4'});
+  const left = 40;
+  doc.setFontSize(14);
+  doc.text('Lançamentos - Entradas e Gastos', left, 40);
+  doc.setFontSize(10);
+  doc.text(`Exportado em: ${formatDateTime(nowISO())}`, left, 56);
+
+  const rows = all.map(r => [
+    formatDateTime(r.timestamp),
+    r.type,
+    (categories.find(c=>c.id===r.categoryId) || {name:'(categoria excluída)'}).name,
+    r.description,
+    r.value.toFixed(2)
+  ]);
+  doc.autoTable({
+    head:[['Data / Hora','Tipo','Categoria','Descrição','Valor R$']],
+    body: rows,
+    startY: 80,
+    styles:{fontSize:8},
+    headStyles:{fillColor:[11,116,222], textColor:255},
+    margin:{left,right:left}
+  });
+  const totalEntradas = entradas.reduce((s,x)=>s + x.value, 0);
+  const totalGastos = gastos.reduce((s,x)=>s + x.value, 0);
+  const finalY = doc.previousAutoTable ? doc.previousAutoTable.finalY + 16 : 120;
+  doc.setFontSize(11);
+  doc.text(`Total entradas: R$ ${moneyBR(totalEntradas)}`, left, finalY);
+  doc.text(`Total gastos: R$ ${moneyBR(totalGastos)}`, left, finalY + 16);
+  doc.text(`Saldo atual: R$ ${moneyBR(totalEntradas - totalGastos)}`, left, finalY + 32);
+  doc.save(`lancamentos_${new Date().toISOString().slice(0,10)}.pdf`);
+}
+
+// ---------- Utility ----------
+function escapeHtml(text){
+  if(!text) return '';
+  return String(text).replace(/[&<>"']/g, m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[m]);
+}
+
+// ---------- Startup ----------
+(async function init(){
+  await openDB();
+  // ensure categories exist
+  const cats = await idbGetAll('categories');
+  if(!cats || cats.length === 0){
+    // seed defaults
+    await Promise.all(defaultCats.map(c => idbPut('categories', c)));
+  }
+  await loadAll();
+  setDefaultDateInputs();
+
+  // wire global functions used by inline onclicks
+  window.deleteGasto = deleteGasto;
+  window.deleteEntrada = deleteEntrada;
+
+  // Wire export buttons exist on load
+  document.getElementById('btnExportGastoPDF').addEventListener('click', ()=> exportFilteredPDF('gasto'));
+  document.getElementById('btnExportEntradaPDF').addEventListener('click', ()=> exportFilteredPDF('entrada'));
+  document.getElementById('btnExportGastoCSV').addEventListener('click', ()=> exportFilteredCSV('gasto'));
+  document.getElementById('btnExportEntradaCSV').addEventListener('click', ()=> exportFilteredCSV('entrada'));
+
+  // refresh UI when returning to tab
+  tabGastos.addEventListener('click', ()=> { renderGastos(); renderResumo(); });
+  tabEntradas.addEventListener('click', ()=> { renderEntradas(); renderResumo(); });
+})();
+
+</script>
+</body>
+</html>
